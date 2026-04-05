@@ -1,5 +1,5 @@
 {
-  "task_type": "single_test",
+  "task_type": "create_plot",
   "single_test": {
     "instances": "2-Med_1",
     "objectives": "total_customers",

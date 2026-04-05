@@ -10,3 +10,5 @@ data/Instances/.DS_Store
 __pycache__/__init__.cpython-312.pyc
 src/.DS_Store
 .DS_Store
+build/
+venv/

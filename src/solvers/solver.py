@@ -388,11 +388,53 @@ class Solver:
             value = sum(1 for f_i in P if self.Z[f_i.id])
 
         elif self.objective == Objectives.TOTAL_PROFIT:
-            """you should write your code here ..."""
+            profit = 0
+            for veh_id, veh_info in self.vehicle_request_assign.items():
+                if veh_info.assigned_requests:
+                    # Cost: vehicle to first customer
+                    first_trip = veh_info.assigned_requests[0]
+                    profit -= self.costs[veh_info.departure_stop][first_trip.origin.label]
+                    for i, trip in enumerate(veh_info.assigned_requests):
+                        # Revenue from fare minus cost of serving (origin to destination)
+                        profit += trip.fare
+                        profit -= self.costs[trip.origin.label][trip.destination.label]
+                        # Cost: empty driving to next customer
+                        if i + 1 < len(veh_info.assigned_requests):
+                            next_trip = veh_info.assigned_requests[i + 1]
+                            profit -= self.costs[trip.destination.label][next_trip.origin.label]
+            value = round(profit, 3)
+
         elif self.objective == Objectives.WAIT_TIME:
-            """you should write your code here ..."""
+            total_wait = 0
+            for f_i in P:
+                if self.Z[f_i.id]:
+                    total_wait += (self.U[f_i.id] - f_i.ready_time) / 60.0
+                else:
+                    total_wait += (f_i.latest_pickup - f_i.ready_time) / 60.0
+            value = round(total_wait, 3)
+
         elif self.objective == Objectives.MULTI_OBJECTIVE:
-            """you should write your code here ..."""
+            # Profit component
+            profit = 0
+            for veh_id, veh_info in self.vehicle_request_assign.items():
+                if veh_info.assigned_requests:
+                    first_trip = veh_info.assigned_requests[0]
+                    profit -= self.costs[veh_info.departure_stop][first_trip.origin.label]
+                    for i, trip in enumerate(veh_info.assigned_requests):
+                        profit += trip.fare
+                        profit -= self.costs[trip.origin.label][trip.destination.label]
+                        if i + 1 < len(veh_info.assigned_requests):
+                            next_trip = veh_info.assigned_requests[i + 1]
+                            profit -= self.costs[trip.destination.label][next_trip.origin.label]
+            # Wait time component
+            total_wait = 0
+            for f_i in P:
+                if self.Z[f_i.id]:
+                    total_wait += (self.U[f_i.id] - f_i.ready_time) / 60.0
+                else:
+                    total_wait += (f_i.latest_pickup - f_i.ready_time) / 60.0
+            w = getattr(SimulationConfig, 'weight', 0.5)
+            value = round(w * profit - (1 - w) * total_wait, 3)
 
         self.objective_value = value
 

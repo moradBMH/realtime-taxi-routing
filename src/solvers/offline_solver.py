@@ -49,6 +49,7 @@ class OfflineSolver:
             Used only for MULTI_OBJECTIVE objective (ignored otherwise). Default 0.5.
         """
         self.objective = objective
+        self.weight = weight
 
         self.objective_value = 0
         self.durations = get_durations(network)
@@ -123,9 +124,30 @@ class OfflineSolver:
         
         """
 
-        """you should write your objective here ..."""
-        raise NotImplementedError("OfflineSolver.define_total_profit_objective() not implemented")
+        # Revenue from served customers
+        revenue = gp.quicksum(f_i.fare * self.Z_var[f_i.id] for f_i in P)
 
+        # Cost: vehicle to first customer pickup
+        cost_vehicle_to_first = gp.quicksum(
+            self.costs[vehicle_request_assign[f_k.id].departure_stop][f_i.origin.label]
+            * self.Y_var[f_k.id, f_i.id]
+            for f_k in K for f_i in P
+        )
+
+        # Cost: serving each customer (origin to destination)
+        cost_serving = gp.quicksum(
+            self.costs[f_i.origin.label][f_i.destination.label] * self.Z_var[f_i.id]
+            for f_i in P
+        )
+
+        # Cost: empty driving between consecutive customers
+        cost_between = gp.quicksum(
+            self.costs[f_i.destination.label][f_j.origin.label] * self.X_var[f_i.id, f_j.id]
+            for f_i in P for f_j in P if f_i != f_j
+        )
+
+        profit = revenue - cost_vehicle_to_first - cost_serving - cost_between
+        self.model.setObjective(profit, sense=GRB.MAXIMIZE)
 
     def define_total_wait_time_objective(self, P):
         """
@@ -142,8 +164,14 @@ class OfflineSolver:
 
         """
 
-        """you should write your objective here ..."""
-        raise NotImplementedError("OfflineSolver.define_total_wait_time_objective() not implemented")
+        # For served customers: wait = (u_i - ready_time_i) / 60
+        # For unserved customers: wait = (latest_pickup_i - ready_time_i) / 60
+        total_wait = gp.quicksum(
+            (self.U_var[f_i.id] - f_i.ready_time) / 60.0
+            + (1 - self.Z_var[f_i.id]) * (f_i.latest_pickup - f_i.ready_time) / 60.0
+            for f_i in P
+        )
+        self.model.setObjective(total_wait, sense=GRB.MINIMIZE)
 
     def define_multi_objective(self, K, P, vehicle_request_assign):
         """
@@ -167,8 +195,34 @@ class OfflineSolver:
 
         """
 
-        """you should write your objective here ..."""
-        raise NotImplementedError("OfflineSolver.define_multi_objective() not implemented")
+        w = self.weight
+
+        # Profit component (same as define_total_profit_objective)
+        revenue = gp.quicksum(f_i.fare * self.Z_var[f_i.id] for f_i in P)
+        cost_vehicle_to_first = gp.quicksum(
+            self.costs[vehicle_request_assign[f_k.id].departure_stop][f_i.origin.label]
+            * self.Y_var[f_k.id, f_i.id]
+            for f_k in K for f_i in P
+        )
+        cost_serving = gp.quicksum(
+            self.costs[f_i.origin.label][f_i.destination.label] * self.Z_var[f_i.id]
+            for f_i in P
+        )
+        cost_between = gp.quicksum(
+            self.costs[f_i.destination.label][f_j.origin.label] * self.X_var[f_i.id, f_j.id]
+            for f_i in P for f_j in P if f_i != f_j
+        )
+        profit = revenue - cost_vehicle_to_first - cost_serving - cost_between
+
+        # Wait time component (same as define_total_wait_time_objective)
+        total_wait = gp.quicksum(
+            (self.U_var[f_i.id] - f_i.ready_time) / 60.0
+            + (1 - self.Z_var[f_i.id]) * (f_i.latest_pickup - f_i.ready_time) / 60.0
+            for f_i in P
+        )
+
+        # Z = maximize w * Profit - (1 - w) * Wait_time
+        self.model.setObjective(w * profit - (1 - w) * total_wait, sense=GRB.MAXIMIZE)
 
 
     def create_model(self, K, P, vehicle_request_assign):
@@ -329,4 +383,3 @@ class OfflineSolver:
         self.define_objective(K, P, vehicle_request_assign)
         self.solve()
         self.extract_solution(K, P, rejected_trips, vehicle_request_assign)
-

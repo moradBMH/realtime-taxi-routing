@@ -136,7 +136,21 @@ class ReOptimizer(Solver):
             offline_model : OfflineSolver instance (Gurobi MIP model).
 
         """
-        """you should write your code here ..."""
+        # Tighten the pickup time window for requests that were served in the initial solution
+        # by restricting U_var[i] to [U_initial[i] - 2min, U_initial[i] + 2min],
+        # intersected with the original [ready_time, latest_pickup] bounds.
+        initial_U = self.initial_solution['U']
+        initial_Z = self.initial_solution['Z']
+        time_delta = 2 * 60  # 2 minutes in seconds
+
+        for f_i in P:
+            if f_i.id in initial_Z and initial_Z[f_i.id] > 0.5:
+                # Request was served in initial solution. Fix U around its initial pickup time
+                u_init = initial_U[f_i.id]
+                new_lb = max(f_i.ready_time, u_init - time_delta)
+                new_ub = min(f_i.latest_pickup, u_init + time_delta)
+                offline_model.U_var[f_i.id].lb = new_lb
+                offline_model.U_var[f_i.id].ub = new_ub
 
     def destroy_fix_variables(self, K, P, offline_model: OfflineSolver):
         """ Fix some of Y_var, X_var variables based on the initial solution.
@@ -152,21 +166,88 @@ class ReOptimizer(Solver):
             - Forbid the arcs that goes from departing node of a vehicle to other requests that were in different
                   vehicle
         """
-        """you should write your code here ..."""
+        assignment_dict = self.initial_solution['assignment_dict']
+
+        # Build a mapping. request_id -> vehicle_id for all requests assigned in the initial solution
+        request_to_vehicle = {}
+        for vehicle_id, data in assignment_dict.items():
+            for request in data['assigned_requests']:
+                request_to_vehicle[request.id] = vehicle_id
+
+        # Forbid X_var[i,j] = 0 when requests i and j were assigned to different vehicles
+        for f_i in P:
+            for f_j in P:
+                if f_i != f_j:
+                    vi = request_to_vehicle.get(f_i.id)
+                    vj = request_to_vehicle.get(f_j.id)
+                    # If both were assigned but to different vehicles forbid the arc
+                    if vi is not None and vj is not None and vi != vj:
+                        offline_model.X_var[f_i.id, f_j.id].ub = 0
+
+        # Forbid Y_var[k,i] = 0 when request i was assigned to a different vehicle in the initial solution
+        for f_k in K:
+            for f_i in P:
+                vi = request_to_vehicle.get(f_i.id)
+                # If request i was assigned to a vehicle different from k forbid this assignment
+                if vi is not None and vi != f_k.id:
+                    offline_model.Y_var[f_k.id, f_i.id].ub = 0
 
 
     def destroy_bonus(self, K, P, offline_model: OfflineSolver):
-        """Custom destroy method
+        """Custom destroy method: Profit-based selective destruction.
+
+        Destroys the assignments of the least profitable vehicles (bottom 50%) while
+        preserving the assignments of the most profitable ones. This targets the weakest
+        parts of the solution for improvement and keeps high-quality assignments intact.
 
         Input:
         ------------
             K : set of vehicles
             P : set of customers to serve
             offline_model : OfflineSolver instance (Gurobi model).
-
-        Hint:
-            - Include comments where necessary to explain your proposed function
-            - you can use any of the inputs if required
         """
-        """you should write your code here ..."""
+        assignment_dict = self.initial_solution['assignment_dict']
+
+        # Compute profit per vehicle from the initial solution
+        vehicle_profits = {}
+        for vehicle_id, data in assignment_dict.items():
+            profit = 0
+            requests = data['assigned_requests']
+            if requests:
+                # Cost. Vehicle to first customer
+                state = self.vehicle_request_assign[vehicle_id]
+                profit -= self.costs[state.departure_stop][requests[0].origin.label]
+                for idx, req in enumerate(requests):
+                    profit += req.fare
+                    profit -= self.costs[req.origin.label][req.destination.label]
+                    if idx + 1 < len(requests):
+                        profit -= self.costs[req.destination.label][requests[idx + 1].origin.label]
+            vehicle_profits[vehicle_id] = profit
+
+        # Sort vehicles by profit and identify bottom 50% to destroy
+        sorted_vehicles = sorted(vehicle_profits.items(), key=lambda x: x[1])
+        num_to_destroy = max(1, len(sorted_vehicles) // 2)
+        vehicles_to_destroy = {v_id for v_id, _ in sorted_vehicles[:num_to_destroy]}
+
+        # Build request->vehicle mapping for preserved vehicles only
+        preserved_requests = {}
+        for vehicle_id, data in assignment_dict.items():
+            if vehicle_id not in vehicles_to_destroy:
+                for request in data['assigned_requests']:
+                    preserved_requests[request.id] = vehicle_id
+
+        # Fix variables for preserved vehicles. Forbid cross-vehicle arcs
+        for f_i in P:
+            for f_j in P:
+                if f_i != f_j:
+                    vi = preserved_requests.get(f_i.id)
+                    vj = preserved_requests.get(f_j.id)
+                    if vi is not None and vj is not None and vi != vj:
+                        offline_model.X_var[f_i.id, f_j.id].ub = 0
+
+        for f_k in K:
+            for f_i in P:
+                vi = preserved_requests.get(f_i.id)
+                if vi is not None and vi != f_k.id:
+                    offline_model.Y_var[f_k.id, f_i.id].ub = 0
 
