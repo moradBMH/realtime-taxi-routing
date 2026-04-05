@@ -1,0 +1,4 @@
+Key,Test,# Trips,# Vehicles,Solution Mode,Time window (min),weight,Algorithm,Objective type,Objective value,# Served customers,# Rejected customers,Average profit ($),Total profit,Average revenue ($),Total revenue,Total cost($),Total wait time (min),Avg. wait time (min),Empty travel time (min),% of Service,runtime (s)
+3-High_1_3_nc,3-High_1,158,25,offline,3,1,MIP_Solver,total_customers,99.0,99,59,11.06,1095.03,12.46,1233.83,138.8,257.42,1.63,431.73,62.7,12.796
+3-High_2_3_nc,3-High_2,156,25,offline,3,1,MIP_Solver,total_customers,91.0,91,65,10.82,984.74,12.3,1119.39,134.64,275.56,1.77,496.35,58.3,12.606
+3-High_3_3_nc,3-High_3,158,25,offline,3,1,MIP_Solver,total_customers,94.0,94,64,11.23,1055.99,12.71,1194.56,138.57,259.09,1.64,468.32,59.5,13.022
