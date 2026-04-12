@@ -69,8 +69,27 @@ class OnlineSolver(Solver):
             - Iterate over self.vehicle_request_assign and set assign_possible for each vehicle.
             - Use the parent class method calc_reach_time(veh_info, trip).
         """
-        """you should write your code here ..."""
+        for veh_id, state in self.vehicle_request_assign.items():
+            # A vehicle can serve the trip if its reach time to the origin is
+            # before the trip's latest_pickup deadline.
+            reach_time = self.calc_reach_time(state, trip)
+            state.assign_possible = reach_time <= trip.latest_pickup
 
+
+    def _select_greedy_vehicle(self, trip):
+        """Return the feasible vehicle best matching the current objective, or None."""
+        candidates = [s for s in self.vehicle_request_assign.values() if s.assign_possible]
+        if not candidates:
+            return None
+
+        if self.objective == Objectives.WAIT_TIME:
+            # Minimize pickup time (reduce wait)
+            return min(candidates, key=lambda s: self.calc_reach_time(s, trip))
+        if self.objective == Objectives.TOTAL_PROFIT:
+            # Minimize empty-driving cost to pickup (maximizes marginal profit)
+            return min(candidates, key=lambda s: self.costs[s.last_stop][trip.origin.label])
+        # TOTAL_CUSTOMERS (and others): prefer earliest reach to keep capacity for others
+        return min(candidates, key=lambda s: self.calc_reach_time(s, trip))
 
     def online_solver(self, K, P_not_assigned, rejected_trips):
         """Find a solution to assign ride requests to vehicles after arrival.
@@ -132,10 +151,14 @@ class OnlineSolver(Solver):
         """
         # for each request find the best insertion position
         assigned_requests = []
-        """
-            Implement your greedy algorithm here:
-        """
-
+        for trip in P_not_assigned:
+            self.determine_available_vehicles(trip)
+            selected = self._select_greedy_vehicle(trip)
+            if selected is None:
+                rejected_trips.append(trip)
+            else:
+                self.assign_trip_to_vehicle(selected, trip)
+                assigned_requests.append(trip)
         return assigned_requests
 
     def random_assign(self, P_not_assigned: List[Any], rejected_trips: List[Any]) -> List[Any]:
@@ -160,10 +183,15 @@ class OnlineSolver(Solver):
         """
         # for each request find the best insertion position
         assigned_requests = []
-        """
-            Implement your random algorithm here:
-        """
-
+        for trip in P_not_assigned:
+            self.determine_available_vehicles(trip)
+            candidates = [s for s in self.vehicle_request_assign.values() if s.assign_possible]
+            if not candidates:
+                rejected_trips.append(trip)
+            else:
+                selected = random.choice(candidates)
+                self.assign_trip_to_vehicle(selected, trip)
+                assigned_requests.append(trip)
         return assigned_requests
 
     def ranking_assign(self, P_not_assigned: List[Any], rejected_trips: List[Any]) -> List[Any]:
@@ -189,8 +217,15 @@ class OnlineSolver(Solver):
         """
         # for each request find the best insertion position
         assigned_requests = []
-        """
-            Implement your ranking algorithm here:
-        """
-
+        for trip in P_not_assigned:
+            self.determine_available_vehicles(trip)
+            candidates = [s for s in self.vehicle_request_assign.values() if s.assign_possible]
+            if not candidates:
+                rejected_trips.append(trip)
+            else:
+                # Classic RANKING: pre-assigned random priority per vehicle;
+                # pick the feasible vehicle with the smallest priority value.
+                selected = min(candidates, key=lambda s: s.random_number)
+                self.assign_trip_to_vehicle(selected, trip)
+                assigned_requests.append(trip)
         return assigned_requests
